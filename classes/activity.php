@@ -127,7 +127,7 @@ class activity {
 
             $graderow = false;
             if ($isgradeable) {
-                $graderow = self::grade_row($courseid, $mod, $keyfield);
+                $graderow = self::grade_row($courseid, $mod);
             }
 
             if ($graderow) {
@@ -259,9 +259,7 @@ class activity {
             list($esql, $params) = get_enrolled_sql(\context_course::instance($courseid), 'mod/assign:submit', 0, true);
             $params['courseid'] = $courseid;
 
-            $submissionmaxattempt = 'SELECT mxs.assignment AS assignid, mxs.userid, MAX(mxs.attemptnumber) AS maxattempt
-                                 FROM {assign_submission} mxs
-                                 GROUP BY assignid, mxs.userid';
+
 
             $sql = "-- Snap sql
                     SELECT cm.id AS coursemoduleid, a.id AS instanceid, a.course,
@@ -277,11 +275,9 @@ class activity {
 
                       JOIN {assign_submission} sb
                         ON sb.assignment = a.id
+                       AND sb.latest = 1
 
-                      JOIN ($submissionmaxattempt) smx
-                        ON sb.assignment = smx.assignid
-
-                      JOIN ($esql) e
+                        JOIN ($esql) e
                         ON e.id = sb.userid
 
  -- Start of join required to make assignments marked via gradebook not show as requiring grading
@@ -291,7 +287,7 @@ class activity {
                  LEFT JOIN {assign_grades} ag
                         ON ag.assignment = sb.assignment
                        AND ag.userid = sb.userid
-                       AND ag.attemptnumber = smx.maxattempt
+                       AND ag.attemptnumber = sb.maxattempt
 
                  LEFT JOIN {grade_items} gi
                         ON gi.courseid = a.course
@@ -308,15 +304,13 @@ class activity {
 
                      WHERE sb.status = 'submitted'
                        AND a.course = :courseid
-                       AND sb.assignment = smx.assignid
-                       AND sb.attemptnumber = smx.maxattempt
+
 
                        AND (
                            sb.timemodified > gg.timemodified
                            OR gg.finalgrade IS NULL
                        )
 
-                       AND sb.userid = smx.userid
                        AND (a.duedate = 0 OR a.duedate > $sixmonthsago)
                   GROUP BY instanceid, a.course, opentime, closetime, coursemoduleid ORDER BY a.duedate ASC";
             $rs = $DB->get_records_sql($sql, $params);
@@ -400,10 +394,6 @@ class activity {
         $coursecontext = \context_course::instance($courseid);
         list($esql, $params) = get_enrolled_sql($coursecontext, 'mod/assign:submit', 0, true);
 
-        $submissionmaxattempt = 'SELECT mxs.assignment AS assignid, mxs.userid, MAX(mxs.attemptnumber) AS maxattempt
-                                 FROM {assign_submission} mxs
-                                 GROUP BY assignid, mxs.userid';
-
         $params['submitted'] = ASSIGN_SUBMISSION_STATUS_SUBMITTED;
         $params['courseid'] = $courseid;
 
@@ -414,13 +404,10 @@ class activity {
                    JOIN {assign} an
                      ON sb.assignment = an.id
 
-                   JOIN ($submissionmaxattempt) smx
-                     ON sb.assignment = smx.assignid
-
               LEFT JOIN {assign_grades} ag
                      ON sb.assignment = ag.assignment
                     AND sb.userid = ag.userid
-                    AND ag.attemptnumber = smx.maxattempt
+                    AND sb.attemptnumber = ag.attemptnumber
 
 -- Start of join required to make assignments marked via gradebook not show as requiring grading
 -- Note: This will lead to disparity between the assignment page (mod/assign/view.php[questionmark]id=[id])
@@ -439,15 +426,16 @@ class activity {
 
 -- End of join required to make assignments classed as graded when done via gradebook
 
+-- Start of enrolment join to make sure we only include students that are allowed to submit. Note this causes an ALL
+-- join on mysql!
                    JOIN ($esql) e
                      ON e.id = sb.userid
+-- End of enrolment join
 
                   WHERE an.course = :courseid
                     AND sb.timemodified IS NOT NULL
                     AND sb.status = :submitted
-
-                    AND sb.userid = smx.userid
-                    AND sb.attemptnumber = smx.maxattempt
+                    AND sb.latest = 1
 
                     AND (
                         sb.timemodified > gg.timemodified
@@ -528,24 +516,18 @@ class activity {
             $params['courseid'] = $courseid;
             $params['submitted'] = ASSIGN_SUBMISSION_STATUS_SUBMITTED;
 
-            $submissionmaxattempt = 'SELECT mxs.assignment AS assignid, mxs.userid, MAX(mxs.attemptnumber) AS maxattempt
-                                 FROM {assign_submission} mxs
-                                 GROUP BY assignid, mxs.userid';
-
             // Get the number of submissions for all assign activities in this course.
             $sql = "-- Snap sql
                 SELECT m.id, COUNT(sb.userid) as totalsubmitted
                   FROM {assign} m
-                  JOIN {assign_submission} sb ON m.id = sb.assignment
-                  JOIN ($submissionmaxattempt) smx
-                 ON sb.userid = smx.userid
-                AND sb.assignment = smx.assignid
+                  JOIN {assign_submission} sb
+                    ON m.id = sb.assignment
+                   AND sb.latest = 1
 
                   JOIN ($esql) e
                     ON e.id = sb.userid
 
                  WHERE m.course = :courseid
-                       AND sb.attemptnumber = smx.maxattempt
                        AND sb.status = :submitted
                  GROUP by m.id";
             $modtotalsbyid['assign'][$courseid] = $DB->get_records_sql($sql, $params);
@@ -673,26 +655,56 @@ class activity {
         }
 
         $submissiontable = $mod->modname.'_'.$submissiontable;
-        $sql = "-- Snap sql
+
+        if ($mod->modname === 'assign') {
+            $params = [$courseid, $USER->id];
+            $sql = "-- Snap sql
                 SELECT a.id AS instanceid, st.*
                     FROM {".$submissiontable."} st
 
                     JOIN {".$mod->modname."} a
                       ON a.id = st.$modfield
 
--- Get only the most recent submission.
+                   WHERE a.course = ?
+                     AND st.latest = 1
+                     AND st.userid = ? $extraselect
+                ORDER BY $modfield DESC, st.id DESC";
+        } else {
+            // Less effecient general purpose for other module types.
+            $params = [$USER->id, $courseid, $USER->id];
+            $sql = "-- Snap sql
+                SELECT a.id AS instanceid, st.*
+                    FROM {".$submissiontable."} st
+
+                    JOIN {".$mod->modname."} a
+                      ON a.id = st.$modfield
+
+                    -- Get only the most recent submission.
                     JOIN (SELECT $modfield as modid, MAX(id) as maxattempt
-                            FROM {".$submissiontable."}
-                           WHERE userid = ?
-                        GROUP BY modid) as smx
+                    FROM {".$submissiontable."}
+                   WHERE userid = ?
+                   GROUP BY modid) as smx
                       ON smx.modid = st.$modfield
                      AND smx.maxattempt = st.id
 
                    WHERE a.course = ?
-                     AND userid = ? $extraselect
+                     AND st.userid = ? $extraselect
                 ORDER BY $modfield DESC, st.id DESC";
-        $submissions[$courseid.'_'.$mod->modname] = $DB->get_records_sql($sql,
-            array($USER->id, $courseid, $USER->id));
+        }
+
+
+
+        // Not every activity has a status field...
+        // Add one if it is missing so code assuming there is a status property doesn't explode.
+        $result = $DB->get_records_sql($sql, $params);
+
+        foreach ($result as $r) {
+            if (!isset($r->status)) {
+                $r->status = null;
+            }
+        }
+
+        $submissions[$courseid.'_'.$mod->modname] = $result;
 
         if (isset($submissions[$courseid.'_'.$mod->modname][$mod->instance])) {
             return $submissions[$courseid.'_'.$mod->modname][$mod->instance];
@@ -736,7 +748,7 @@ class activity {
      * @param $modfield
      * @return bool
      */
-    public static function grade_row($courseid, $mod, $modfield) {
+    public static function grade_row($courseid, $mod) {
         global $DB, $USER;
 
         static $grades = array();
@@ -747,7 +759,6 @@ class activity {
             return $grades[$courseid.'_'.$mod->modname][$mod->instance];
         }
 
-        $gradetable = $mod->modname.'_grades';
         $sql = "-- Snap sql
                 SELECT m.id AS instanceid, gg.*
 
