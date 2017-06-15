@@ -835,7 +835,7 @@ class activity {
                             FROM {" . $mod->modname . "} module
                             LEFT JOIN {" . $mod->modname . "_overrides} ovrd1 ON module.id=ovrd1.$id AND $USER->id=ovrd1.userid
                             LEFT JOIN {" . $mod->modname . "_overrides} ovrd2 ON module.id=ovrd2.$id AND ovrd2.groupid $groupsql";
-                    $groupbysql = " GROUP BY module.id, timeopen, timeclose";
+                    $groupbysql = " GROUP BY module.id, module.$timeopenfld, module.$timeclosefld";
                 } else {
                     $sql .= ", ovrd1.$timeopenfld AS timeopenover, ovrd1.$timeclosefld AS timecloseover
                              FROM {" . $mod->modname . "} module 
