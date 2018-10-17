@@ -143,7 +143,6 @@ body.path-site .block.block_settings {
             padding-top: 6.3rem;
         }
 
-
         // This is inside card-body for specificity resasons.
         .block_tree [aria-expanded="false"].loading {
             background: none;
@@ -165,6 +164,8 @@ body.path-site .block.block_settings {
         }
     }
 }
+
+
 
 /* icons in blocks */
 .block_navigation .block_tree .tree_item.branch,
