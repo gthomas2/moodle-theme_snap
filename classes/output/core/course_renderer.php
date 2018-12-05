@@ -763,7 +763,7 @@ class course_renderer extends \core_course_renderer {
         $book = $DB->get_record('book', array('id' => $cm->instance), '*', MUST_EXIST);
         $chapters = book_preload_chapters($book);
 
-        if ($book->intro) {
+        if ($book->intro && trim(strip_tags($book->intro)) !== '') {
             $context = context_module::instance($mod->id);
             $content = file_rewrite_pluginfile_urls($book->intro, 'pluginfile.php', $context->id, 'mod_book', 'intro', null);
             $formatoptions = new stdClass;
@@ -771,11 +771,7 @@ class course_renderer extends \core_course_renderer {
             $formatoptions->overflowdiv = true;
             $formatoptions->context = $context;
             $content = format_text($content, $book->introformat, $formatoptions);
-            $o = '<div class="summary-text row">';
-            $o .= '<div class="col-sm-6">' .$content. '</div>';
-            $o .= '<div class="col-sm-6">' .$this->book_get_toc($chapters, $book, $cm) . '</div>';
-            $o .= '</div>';
-            return $o;
+            return $content;
         }
         return $this->book_get_toc($chapters, $book, $cm);
     }
@@ -784,10 +780,13 @@ class course_renderer extends \core_course_renderer {
      * Simplified book toc Get assignment module html (includes meta data);
      *
      * Based on the function of same name in mod/book/localib.php
-     * @param $mod
+     * @param array $chapters
+     * @param stdClass $book
+     * @param stdClass $cm
+     * @param bool $subchapters
      * @return string
      */
-    public function book_get_toc($chapters, $book, $cm) {
+    public function book_get_toc($chapters, $book, $cm, $subchapters = true) {
         $context = context_module::instance($cm->id);
 
         switch ($book->numbering) {
@@ -811,20 +810,11 @@ class course_renderer extends \core_course_renderer {
         $chapterlist = '';
         foreach ($chapters as $ch) {
             $title = trim(format_string($ch->title, true, array('context' => $context)));
-            if (!$ch->hidden) {
-                if ($closemeflag && !$ch->parent) {
-                    $chapterlist .= "</ul></li>";
-                    $closemeflag = false;
-                }
+            if (!$ch->hidden && !$ch->parent) {
                 $chapterlist .= "<li>";
                 $chapterlist .= html_writer::link(new moodle_url('/mod/book/view.php',
                     array('id' => $cm->id, 'chapterid' => $ch->id)), $title, array());
-                if ($ch->subchapters) {
-                    $chapterlist .= "<ul>";
-                    $closemeflag = true;
-                } else {
-                    $chapterlist .= "</li>";
-                }
+                $chapterlist .= "</li>";
             }
         }
         $toc .= $chapterlist.'</ol>';

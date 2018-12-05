@@ -743,7 +743,8 @@ li.section:focus {
 }
 
 .snap-native.modtype_book ol.bookmod-chapters {
-    margin: 0;
+    margin: 0 0 1em 0;
+
     &.list-bullets {
         list-style-type: square;
     }
@@ -1046,7 +1047,7 @@ body.snap-resource-card li.snap-resource {
     .asset-wrapper {
         @include clearfix;
     }
-    
+
     &:not(.modtype_label) .asset-wrapper {
         cursor: pointer;
     }
