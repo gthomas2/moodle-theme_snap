@@ -206,8 +206,25 @@ function theme_snap_send_file($context, $filearea, $args, $forcedownload, $optio
  * @return bool
  */
 function theme_snap_pluginfile($course, $cm, $context, $filearea, $args, $forcedownload, array $options = array()) {
+    global $CFG;
 
     $coverimagecontexts = [CONTEXT_SYSTEM, CONTEXT_COURSE, CONTEXT_COURSECAT];
+
+    $cargs = $args;
+    array_shift($cargs);
+    // We allow config files to specify relative paths to pix files only!
+    $userelpath = strpos(implode('/', $cargs), 'theme/snap/pix') === 0;
+
+    // Get file directly from file system.
+    if ($userelpath) {
+        $path = $CFG->dirroot.'/'.implode('/', $cargs);
+        if (file_exists($path)) {
+            send_file($path, basename($path));
+            return true;
+        } else {
+            send_file_not_found();
+        }
+    }
 
     // System level file areas.
     $sysfileareas = [
