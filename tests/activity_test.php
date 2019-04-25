@@ -1579,4 +1579,67 @@ class theme_snap_acitvity_test extends snap_base_test {
         $this->assertCount(0, $actual);
     }
 
+    public function test_database_num_submissions() {
+        $this->resetAfterTest();
+
+        $dg = $this->getDataGenerator();
+        $course = $dg->create_course();
+        $student1 = $dg->create_user();
+        $student2 = $dg->create_user();
+        $student3 = $dg->create_user();
+        $dg->enrol_user($student1->id, $course->id, 'student');
+        $dg->enrol_user($student2->id, $course->id, 'student');
+        $dg->enrol_user($student3->id, $course->id, 'student');
+        $generator = $this->getDataGenerator()->get_plugin_generator('mod_data');
+        $data = $generator->create_instance(array('course' => $course->id));
+
+        // Creating test Fields with default parameter values.
+        $fieldtype = 'text';
+
+        $fieldname = 'field-text-test';
+        $record = new StdClass();
+        $record->name = $fieldname;
+        $record->type = $fieldtype;
+
+        $field = $this->getDataGenerator()->get_plugin_generator('mod_data')->create_field($record, $data);
+        $this->setUser($student1);
+        $this->getDataGenerator()->get_plugin_generator('mod_data')->create_entry($data,
+            [$field->field->id => 'some text']);
+        $numsubmissions = activity::data_num_submissions($course->id, $data->id);
+        // Only 1 student has made an entry - should just be 1 submission.
+        $this->assertEquals(1, $numsubmissions);
+
+        // Add another entry.
+        $this->getDataGenerator()->get_plugin_generator('mod_data')->create_entry($data,
+            [$field->field->id => 'some text 2nd entry']);
+        $this->getDataGenerator()->get_plugin_generator('mod_data')->create_entry($data,
+            [$field->field->id => 'some text 3rd entry']);
+        $numsubmissions = activity::data_num_submissions($course->id, $data->id);
+        // Should still only be 1 entry - the same student has made more entries but it's only counted as 1 submission.
+        $this->assertEquals(1, $numsubmissions);
+
+        // Add entries from 2 other students.
+        $this->setUser($student2);
+        $this->getDataGenerator()->get_plugin_generator('mod_data')->create_entry($data,
+            [$field->field->id => '1st entry student 2']);
+        $this->setUser($student3);
+        $this->getDataGenerator()->get_plugin_generator('mod_data')->create_entry($data,
+            [$field->field->id => '1st entry student 3']);
+        // Should be 3 unique submissions.
+        $numsubmissions = activity::data_num_submissions($course->id, $data->id);
+        $this->assertEquals(3, $numsubmissions);
+
+        // Add more submissions from student2 and 3.
+        $this->setUser($student2);
+        $this->getDataGenerator()->get_plugin_generator('mod_data')->create_entry($data,
+            [$field->field->id => '2nd entry student 2']);
+
+        $this->setUser($student3);
+        $this->getDataGenerator()->get_plugin_generator('mod_data')->create_entry($data,
+            [$field->field->id => '2nd entry student 3']);
+
+        // Should still be 3 unique submissions.
+        $numsubmissions = activity::data_num_submissions($course->id, $data->id);
+        $this->assertEquals(3, $numsubmissions);
+    }
 }

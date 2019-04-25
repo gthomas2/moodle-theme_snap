@@ -637,6 +637,64 @@ class activity {
         return 0;
     }
 
+    public static function data_num_submissions($courseid, $modid) {
+        global $DB;
+
+        static $modtotalsbyid = array();
+
+        if (defined('PHPUNIT_TEST') && PHPUNIT_TEST) {
+            $modtotalsbyid = [];
+        }
+
+        if (!isset($modtotalsbyid[$courseid])) {
+            // Results are not cached, so lets get them.
+
+            $recentsubmitsql = "
+                SELECT d.id, dr.userid, max(dr.id) AS recentsubmit
+                  FROM {data} d
+                  JOIN {data_records} dr
+                    ON d.id = dr.dataid
+                   AND d.course = :courseid3
+              GROUP BY d.id, dr.userid
+              ";
+            $recentsubmitparams = ['courseid3' => $courseid];
+
+
+            list($esql, $params) = get_enrolled_sql(\context_course::instance($courseid), 'mod/assign:submit', 0, true);
+
+            list($sqlgroupsjoin, $sqlgroupswhere, $groupparams) = self::get_groups_sql($courseid);
+
+            // Get the number of submissions for all assign activities in this course.
+            $sql = "-- Snap sql
+                SELECT m.id, COUNT(sb.userid) as totalsubmitted
+                  FROM {data} m
+                  JOIN {data_records} sb
+                  JOIN
+                  (
+                  $recentsubmitsql
+                  ) sq ON sq.userid = sb.userid AND m.id = sb.dataid AND sb.id = sq.recentsubmit
+
+                  JOIN ($esql) e
+                    ON e.id = sb.userid
+                       $sqlgroupsjoin
+
+                 WHERE m.course = :courseid
+                       $sqlgroupswhere
+                 GROUP by m.id";
+
+            $params = array_merge(['courseid' => $courseid], $params, $groupparams, $recentsubmitparams);
+            $modtotalsbyid[$courseid] = $DB->get_records_sql($sql, $params);
+        }
+        $totalsbyid = $modtotalsbyid[$courseid];
+
+        if (!empty($totalsbyid)) {
+            if (isset($totalsbyid[$modid])) {
+                return intval($totalsbyid[$modid]->totalsubmitted);
+            }
+        }
+        return 0;
+    }
+
 
     /**
      * Get number of answers for specific choice
